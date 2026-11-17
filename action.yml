@@ -135,6 +135,10 @@ inputs:
     description: SHA-256 of the .deb. Setting this or deb-url always ignores a preinstalled toolchain.
     required: false
     default: ""
+  allow-preinstalled:
+    description: Use a Swarmfile toolchain already on PATH instead of installing the .deb. Off by default; a preinstalled copy receives the API key, so opt in only for a runner image you control.
+    required: false
+    default: "false"
   install-deps:
     description: Install FUSE/runtime packages with apt in agent mode (set false on a pre-provisioned runner).
     required: false
@@ -183,6 +187,7 @@ runs:
         SWARMFILE_INSTALL_ASSET_HUB: ${{ inputs.install-asset-hub }}
         SWARMFILE_DEB_URL: ${{ inputs.deb-url }}
         SWARMFILE_DEB_SHA256: ${{ inputs.deb-sha256 }}
+        SWARMFILE_ALLOW_PREINSTALLED: ${{ inputs.allow-preinstalled }}
         SWARMFILE_INSTALL_DEPS: ${{ inputs.install-deps }}
       run: "bash \"${{ github.action_path }}/scripts/install.sh\""
 

@@ -74,10 +74,10 @@ behind the agent.
   `main` requires `checks: write`; a missing signing key, an invalid manifest
   or a missing token leaves it unsatisfied.
 - **The `.deb` is verified** against the release asset's digest, the release's
-  `SHA256SUMS`, or `deb-sha256`. Without a pin, a **preinstalled**
-  `swarmfile-engine`/`swarmfile`/`git-remote-swarmfile` on `PATH` is used
-  before the download (remove an old copy or pin; otherwise the agent feature
-  floor fails). With no preinstalled toolchain, the installer resolves the
+  `SHA256SUMS`, or `deb-sha256`. A preinstalled
+  `swarmfile-engine`/`swarmfile`/`git-remote-swarmfile` on `PATH` is used only
+  with `allow-preinstalled: true` (and must still meet the agent feature
+  floor); the default installs the `.deb`. The installer resolves the
   newest Linux `.deb` attached to the `swarmfile-agent-action` public release
   through the hub's anonymous asset API on its `workers.dev` origin (the
   `install-asset-hub` input); the custom domains answer GitHub-hosted runners
@@ -86,8 +86,9 @@ behind the agent.
   ignores a preinstalled toolchain. On a host that cannot reach either channel
   (an air-gapped mirror), install `swarmfile-engine`, `swarmfile` and
   `git-remote-swarmfile` on `PATH` in an earlier workflow step; the installer
-  uses that toolchain instead of fetching the `.deb`. The rest of the install
-  still needs `curl`, Node 18+ and `jq` (and a FUSE-capable runner for agent
+  uses that toolchain instead of fetching the `.deb` when `allow-preinstalled`
+  is on. The rest of the install still needs `curl`, Node 18+ and `jq` (and a
+  FUSE-capable runner for agent
   mode); `dpkg-deb` is only required for the `.deb` path, so set
   `install-deps: false` only when those are already present.
 - **Pin everything you can:** the container image, the harness version, and
@@ -225,6 +226,7 @@ the issue.
 | `install-asset-hub` | both | no | the hub's production `workers.dev` origin | public origin that serves the anonymous release assets (the unchallenged `.deb` channel); empty forces `update-manifest` |
 | `deb-url` | both | no | empty | explicit `.deb` URL |
 | `deb-sha256` | both | no | empty | `.deb` checksum; a pin always wins over preinstalled tools |
+| `allow-preinstalled` | both | no | `false` | use a toolchain already on `PATH` (opt-in; the `.deb` is the default) |
 | `install-deps` | agent | no | `true` | apt-install FUSE/runtime packages |
 
 Outputs: `branch`, `head`, `changed`, `pr-url`.
@@ -321,8 +323,9 @@ fails closed rather than silently using defaults.
 - The `.deb` is the release build: the public asset channel is preferred, then
   the update channel. A release that predates agent sessions/checkpoints is
   refused; the stable channel is 0.3.16 at the time of writing, which satisfies
-  the 0.3.15 floor. A preinstalled older toolchain is used before the asset —
-  remove it or pin a 0.3.15+ `deb-url`.
+  the 0.3.15 floor. A preinstalled older toolchain is used only with
+  `allow-preinstalled: true` (and still must meet the floor); otherwise pin a
+  0.3.15+ `deb-url`.
 
 ## Development
 

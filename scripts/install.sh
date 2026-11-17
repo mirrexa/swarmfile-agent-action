@@ -74,7 +74,14 @@ fi
 # A preinstalled toolchain (a runner image that already ships Swarmfile) skips
 # both the .deb download and the dependency install; a pin still wins over it.
 preinstalled=false
-if ! $pinned; then
+allow_preinstalled=false
+case "${SWARMFILE_ALLOW_PREINSTALLED:-0}" in
+  1|true|TRUE) allow_preinstalled=true ;;
+esac
+# A toolchain already on PATH is only trusted when the workflow explicitly
+# opts in: a stale/planted copy would otherwise receive the API key and run the
+# install checks under the runner's identity.
+if ! $pinned && $allow_preinstalled; then
   if $GIT_ONLY; then
     command -v git-remote-swarmfile >/dev/null 2>&1 && preinstalled=true
   elif command -v swarmfile-engine >/dev/null 2>&1 \

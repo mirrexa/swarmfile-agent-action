@@ -350,7 +350,17 @@ if [ "$PROVENANCE" = "true" ] && [ "$pushed" = "true" ] && [ -n "$github_head" ]
     manifest_url=""
   fi
   run_id="${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}"
-  if [ -n "$manifest_url" ] && printf 'header = "Authorization: Bearer %s"\n' "$SWARMFILE_API_KEY" \
+  signing_key_url="${HUB%/}/orgs/$ORG/repositories/$PROJECT/history/signing-key"
+  signing_key_ok=false
+  if [ -n "$manifest_url" ] \
+    && curl -sS -f -H "Accept: application/json" \
+        -H "Authorization: Bearer $SWARMFILE_API_KEY" \
+        "$signing_key_url" -o "$WORK/signing-key.json"; then
+    signing_key_ok=true
+  elif [ -n "$manifest_url" ]; then
+    say "signed manifest skipped (the hub's published signing key is unavailable)"
+  fi
+  if [ -n "$manifest_url" ] && $signing_key_ok && printf 'header = "Authorization: Bearer %s"\n' "$SWARMFILE_API_KEY" \
     | curl -sS -f -G -K - -H "Accept: application/json" \
         --data-urlencode "branch=$BRANCH" \
         --data-urlencode "head=$EXPECTED_HEAD" \
@@ -366,7 +376,7 @@ if [ "$PROVENANCE" = "true" ] && [ "$pushed" = "true" ] && [ -n "$github_head" ]
     manifest_count="$(jq -r '.manifest.checkpoints | length' "$WORK/manifest.json" 2>/dev/null || echo 0)"
     if [[ "$manifest_sha" =~ ^[0-9a-f]{64}$ ]] && [ -n "$manifest_key" ] \
        && [ -n "$manifest_signature" ] && [ -n "$manifest_canonical" ] \
-       && node "$here/verify-manifest.mjs" "$WORK/manifest.json" "$BRANCH" "$EXPECTED_HEAD" "$PROJECT" "$github_head"; then
+       && node "$here/verify-manifest.mjs" "$WORK/manifest.json" "$BRANCH" "$EXPECTED_HEAD" "$PROJECT" "$github_head" "$WORK/signing-key.json"; then
       manifest_ok=true
       manifest_checkpoints="$(jq -r '.manifest.checkpoints[:50][] | "- `\(.seq)` `\(.commit[0:12])`"' "$WORK/manifest.json" 2>/dev/null || true)"
       cat > "$WORK/check.txt" <<EOF

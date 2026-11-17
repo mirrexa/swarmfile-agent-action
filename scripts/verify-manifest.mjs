@@ -4,18 +4,28 @@
  * job posts a success check. The shell owns HTTP; this owns the cryptographic
  * and identity checks (Node is already a publish-mode requirement).
  *
- *   node verify-manifest.mjs <manifest.json> <branch> <hub-head> <repository> <github-head>
+ *   node verify-manifest.mjs <manifest.json> <branch> <hub-head> <repository> \
+ *     <github-head> [signing-key.json]
+ *
+ * The optional `signing-key.json` is the hub's `/history/signing-key` body
+ * (`{keys:[{keyId,publicKey}]}`). When present the manifest's key must be one
+ * of the published keys; the publish path always fetches it. The canonical
+ * JSON is parsed and used for the identity checks (the outer `manifest` is only
+ * a convenience copy and must match it).
  */
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-const [file, expectedBranch, expectedHead, expectedRepository, expectedGithub] = process.argv.slice(2);
+const [file, expectedBranch, expectedHead, expectedRepository, expectedGithub, signingKeyFile] =
+  process.argv.slice(2);
 const fail = (message) => {
   console.error(`manifest rejected: ${message}`);
   process.exit(1);
 };
 if (!file || !expectedBranch || !expectedHead || !expectedRepository) {
-  fail("usage: verify-manifest.mjs <manifest.json> <branch> <head> <repository> <github-head>");
+  fail(
+    "usage: verify-manifest.mjs <manifest.json> <branch> <head> <repository> <github-head> [signing-key.json]",
+  );
 }
 
 let body;
@@ -51,13 +61,47 @@ if (!verify(null, payload, publicKey, Buffer.from(body.signature.signature, "hex
   fail("Ed25519 signature does not verify");
 }
 
+// The signature covers the canonical JSON. Parse it and use it for identity:
+// the outer `manifest` copy is unsigned and must not be trusted on its own.
+let signed;
+try {
+  signed = JSON.parse(canonical.toString("utf8"));
+} catch {
+  fail("canonical is not JSON");
+}
+if (!signed || typeof signed !== "object") fail("canonical is not a JSON object");
+const signedRepository = signed.repository ?? signed.project;
+if (signed.kind !== "swarmfile-agent-session") fail("unexpected signed manifest kind");
+if (signed.branch !== expectedBranch) fail("signed branch does not match the request");
+if (signed.headCommit !== expectedHead) fail("signed headCommit does not match the request");
+if (signedRepository !== expectedRepository) fail("signed repository does not match the request");
+if (signed.githubCommit && expectedGithub && signed.githubCommit !== expectedGithub) {
+  fail("signed githubCommit does not match the GitHub commit");
+}
+
 const manifest = body.manifest;
 if (!manifest || typeof manifest !== "object") fail("manifest is missing");
-if (manifest.branch !== expectedBranch) fail("branch does not match the request");
-if (manifest.headCommit !== expectedHead) fail("headCommit does not match the request");
-if (manifest.repository !== expectedRepository) fail("repository does not match the request");
-if (manifest.githubCommit && expectedGithub && manifest.githubCommit !== expectedGithub) {
-  fail("githubCommit does not match the GitHub commit");
+const outerRepository = manifest.repository ?? manifest.project;
+if (manifest.kind !== signed.kind) fail("outer manifest kind does not match the signed canonical");
+if (manifest.branch !== signed.branch) fail("outer manifest branch does not match the signed canonical");
+if (manifest.headCommit !== signed.headCommit) fail("outer manifest headCommit does not match the signed canonical");
+if (outerRepository !== signedRepository) fail("outer manifest repository does not match the signed canonical");
+if ((manifest.githubCommit ?? null) !== (signed.githubCommit ?? null)) {
+  fail("outer manifest githubCommit does not match the signed canonical");
 }
-if (manifest.kind !== "swarmfile-agent-session") fail("unexpected manifest kind");
+
+if (signingKeyFile) {
+  let published;
+  try {
+    published = JSON.parse(readFileSync(signingKeyFile, "utf8"));
+  } catch (error) {
+    fail(`published signing key is unreadable (${String(error)})`);
+  }
+  const keys = Array.isArray(published?.keys) ? published.keys : [];
+  const entry = keys.find((key) => key?.keyId === body.signature.keyId);
+  if (!entry) fail("published signing key does not contain this keyId");
+  if (String(entry.publicKey ?? "").toLowerCase() !== body.signature.publicKey) {
+    fail("published signing key does not match the manifest's key");
+  }
+}
 console.log("manifest verified");
