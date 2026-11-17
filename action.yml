@@ -115,6 +115,10 @@ inputs:
     description: Publish mode only. Allow the agent branch to change .github/workflows or .github/actions (default false).
     required: false
     default: "false"
+  allow-action-source-changes:
+    description: Publish mode only. Allow the agent branch to change a local action at the repository root (action.yml, scripts/*) when the repository is itself the action (default false).
+    required: false
+    default: "false"
   provenance:
     description: "Publish mode only. Fetch the hub-signed manifest, post a `swarmfile/agent` check run and commit status, and comment provenance/checkpoints on a PR. The token needs `checks: write`, `statuses: write` and `pull-requests: write`."
     required: false
@@ -221,5 +225,6 @@ runs:
         SWARMFILE_GITHUB_TOKEN: ${{ inputs.github-token }}
         SWARMFILE_EXPECTED_HEAD: ${{ inputs.expected-head }}
         SWARMFILE_ALLOW_WORKFLOW_CHANGES: ${{ inputs.allow-workflow-changes }}
+        SWARMFILE_ALLOW_ACTION_SOURCE_CHANGES: ${{ inputs.allow-action-source-changes }}
         SWARMFILE_PROVENANCE: ${{ inputs.provenance }}
       run: "bash \"${{ github.action_path }}/scripts/run.sh\""

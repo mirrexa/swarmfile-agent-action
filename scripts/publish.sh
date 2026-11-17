@@ -29,6 +29,7 @@ GITHUB_TOKEN="$SWARMFILE_GITHUB_TOKEN"
 PUBLISH_TOKEN="$GITHUB_TOKEN"
 EXPECTED_HEAD="${SWARMFILE_EXPECTED_HEAD:-}"
 ALLOW_WORKFLOW_CHANGES="${SWARMFILE_ALLOW_WORKFLOW_CHANGES:-false}"
+ALLOW_ACTION_SOURCE_CHANGES="${SWARMFILE_ALLOW_ACTION_SOURCE_CHANGES:-false}"
 PUBLISH_BRANCH="${SWARMFILE_PUBLISH_BRANCH:-}"
 PROVENANCE="${SWARMFILE_PROVENANCE:-true}"
 
@@ -251,6 +252,7 @@ if [ "$ALLOW_WORKFLOW_CHANGES" != "true" ] || [ "${count:-0}" -gt 0 ]; then
     || fail "could not read the branch diff"
   protected=false
   policy_changed=false
+  action_source_changed=false
   if [ "${count:-0}" -gt 0 ]; then
     while IFS= read -r -d '' changed; do
       case "$changed" in
@@ -268,7 +270,10 @@ if [ "$ALLOW_WORKFLOW_CHANGES" != "true" ] || [ "${count:-0}" -gt 0 ]; then
         # The pilot/action repository's action lives at its root; a branch
         # changing it would run the changed publish path on the next merge.
         action.yml|scripts/*)
-          if [ -f action.yml ] && [ -f scripts/publish.sh ] && [ "$ALLOW_WORKFLOW_CHANGES" != "true" ]; then
+          if [ -f "${GITHUB_WORKSPACE:-.}/action.yml" ] \
+            && [ -f "${GITHUB_WORKSPACE:-.}/scripts/publish.sh" ] \
+            && [ "$ALLOW_ACTION_SOURCE_CHANGES" != "true" ]; then
+            action_source_changed=true
             protected=true
             break
           fi
@@ -280,7 +285,10 @@ if [ "$ALLOW_WORKFLOW_CHANGES" != "true" ] || [ "${count:-0}" -gt 0 ]; then
     if [ "$policy_changed" = "true" ]; then
       fail "the agent branch changes .swarmfile/agents.yml; review and merge a policy change outside the agent workflow"
     fi
-    fail "the agent branch changes .github/workflows, .github/actions or this repository's action source; set allow-workflow-changes: true only if you trust the agent"
+    if [ "$action_source_changed" = "true" ]; then
+      fail "the agent branch changes this repository's action source; set allow-action-source-changes: true only if you trust the agent"
+    fi
+    fail "the agent branch changes .github/workflows or .github/actions; set allow-workflow-changes: true only if you trust the agent"
   fi
 fi
 
@@ -353,8 +361,8 @@ if [ "$PROVENANCE" = "true" ] && [ "$pushed" = "true" ] && [ -n "$github_head" ]
   signing_key_url="${HUB%/}/orgs/$ORG/repositories/$PROJECT/history/signing-key"
   signing_key_ok=false
   if [ -n "$manifest_url" ] \
-    && curl -sS -f -H "Accept: application/json" \
-        -H "Authorization: Bearer $SWARMFILE_API_KEY" \
+    && printf 'header = "Authorization: Bearer %s"\n' "$SWARMFILE_API_KEY" \
+      | curl -sS -f -K - -H "Accept: application/json" \
         "$signing_key_url" -o "$WORK/signing-key.json"; then
     signing_key_ok=true
   elif [ -n "$manifest_url" ]; then
@@ -376,7 +384,7 @@ if [ "$PROVENANCE" = "true" ] && [ "$pushed" = "true" ] && [ -n "$github_head" ]
     manifest_count="$(jq -r '.manifest.checkpoints | length' "$WORK/manifest.json" 2>/dev/null || echo 0)"
     if [[ "$manifest_sha" =~ ^[0-9a-f]{64}$ ]] && [ -n "$manifest_key" ] \
        && [ -n "$manifest_signature" ] && [ -n "$manifest_canonical" ] \
-       && node "$here/verify-manifest.mjs" "$WORK/manifest.json" "$BRANCH" "$EXPECTED_HEAD" "$PROJECT" "$github_head" "$WORK/signing-key.json"; then
+       && SWARMFILE_REQUIRE_PUBLISHED_KEY=1 node "$here/verify-manifest.mjs" "$WORK/manifest.json" "$BRANCH" "$EXPECTED_HEAD" "$PROJECT" "$github_head" "$WORK/signing-key.json"; then
       manifest_ok=true
       manifest_checkpoints="$(jq -r '.manifest.checkpoints[:50][] | "- `\(.seq)` `\(.commit[0:12])`"' "$WORK/manifest.json" 2>/dev/null || true)"
       cat > "$WORK/check.txt" <<EOF

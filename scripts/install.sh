@@ -124,7 +124,7 @@ fi
 node18 || fail "Node 18+ is required to read .swarmfile/agents.yml; install Node 18+ or set install-deps: true"
 command -v jq >/dev/null 2>&1 || fail "jq is required; leave install-deps: true or install it on the runner"
 
-if ! $pinned; then
+if $preinstalled; then
   if $GIT_ONLY; then
     if command -v git-remote-swarmfile >/dev/null 2>&1; then
       say "using the preinstalled git-remote-swarmfile"

@@ -221,6 +221,7 @@ the issue.
 | `github-token` | publish | yes | empty | the built-in `${{ github.token }}`; a PAT is refused |
 | `expected-head` | publish | required when the branch has commits | empty | agent job `head`; the fetched head's `Swarmfile-Commit` trailer must match |
 | `allow-workflow-changes` | publish | no | `false` | allow `.github/workflows`/`.github/actions` changes (never `.swarmfile/agents.yml`) |
+| `allow-action-source-changes` | publish | no | `false` | allow a branch to edit a local action at the repo root (`action.yml`, `scripts/*`) |
 | `provenance` | publish | no | `true` | fetch the signed manifest, post the `swarmfile/agent` check run + commit status and PR provenance/checkpoint comment (`checks: write`, `statuses: write`, `pull-requests: write`) |
 | `update-manifest` | both | no | stable manifest | update-channel manifest |
 | `install-asset-hub` | both | no | the hub's production `workers.dev` origin | public origin that serves the anonymous release assets (the unchallenged `.deb` channel); empty forces `update-manifest` |

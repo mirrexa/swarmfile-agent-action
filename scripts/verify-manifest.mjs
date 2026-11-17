@@ -90,6 +90,9 @@ if ((manifest.githubCommit ?? null) !== (signed.githubCommit ?? null)) {
   fail("outer manifest githubCommit does not match the signed canonical");
 }
 
+if (process.env.SWARMFILE_REQUIRE_PUBLISHED_KEY === "1" && !signingKeyFile) {
+  fail("the published signing key is required (SWARMFILE_REQUIRE_PUBLISHED_KEY=1)");
+}
 if (signingKeyFile) {
   let published;
   try {

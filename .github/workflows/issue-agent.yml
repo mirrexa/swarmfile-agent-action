@@ -104,7 +104,7 @@ jobs:
           agent-env: DEEPSEEK_API_KEY
           # Pin the install: the asset digest served by the same anonymous
           # origin is a transport check, not an authenticity proof.
-          deb-url: https://swarmfile-dispatch-production.mdodd.workers.dev/public/swarmfile/agent-action/assets/swarmfile_0.3.16_amd64.deb
+          deb-url: "https://swarmfile-dispatch-production.mdodd.workers.dev/public/swarmfile/swarmfile-agent-action/assets/swarmfile_0.3.16_amd64.deb?tag=agent-v0.3.16"
           deb-sha256: 6e7a930645fcf092116e93aa349c9513beda6b1b7e088493877d78c527a88a53
           # Pinned harness (never @latest).
           command: |
@@ -118,8 +118,8 @@ jobs:
             grep -rIEl --exclude-dir=.git --exclude-dir=node_modules \
               -e 'sf_key_[A-Za-z0-9]{8,}' \
               -e 'sf_pat_[A-Za-z0-9]{8,}' \
-              -e 'sk-[A-Za-z0-9_-]{20,}' \
-              -e 'gh[ps]_[A-Za-z0-9]{20,}' \
+              -e '(^|[^A-Za-z0-9_-])sk-[A-Za-z0-9_-]{20,}' \
+              -e 'gh[opsur]_[A-Za-z0-9]{20,}' \
               -e 'github_pat_[A-Za-z0-9_]{20,}' . >/tmp/secret-scan.txt || scan_rc=$?
             if [ "$scan_rc" -eq 0 ]; then
               echo 'a credential-shaped string was found; refusing to promote this branch' >&2
