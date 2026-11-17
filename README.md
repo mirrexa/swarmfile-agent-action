@@ -13,13 +13,18 @@ behind the agent.
 > Docker (container mode) and a FUSE-capable runner (the publish job needs
 > neither). `run-on-host` is an explicit non-isolating fallback for FUSE-host
 > runners where Docker cannot bind the mount (see the input and security notes
-> below). FUSE on GitHub-hosted `ubuntu-latest` is being validated; use a
-> self-hosted runner if it fails. The action needs a release that includes the
-> agent-workspace commands (**0.3.15+**); the stable channel can lag, so set
-> `deb-url` to a newer `.deb` if the installer refuses. Published at
-> <https://github.com/marketplace/actions/swarmfile-agent-workspace>; use
-> `mirrexa/swarmfile-agent-action@v0.3.16` (or the source) with the public
-> action ref. Prerequisites: `curl`, `jq`, `git`, and `gh` (the publish
+> below). The hosted agent job passes on `ubuntu-latest`; use a self-hosted
+> runner if your image or network cannot mount. The action needs a release that
+> includes the agent-workspace commands (**0.3.15+**); the installer resolves the
+> newest published Linux `.deb` from the hub's anonymous release assets first
+> (the custom domains challenge GitHub-hosted runners; the hub's `workers.dev`
+> origin does not), then falls back to the stable update channel. Published at
+> <https://github.com/marketplace/actions/swarmfile-agent-workspace>; use the
+> GitHub tag cut from the **same release** that contains this source
+> (`v0.3.17` at the time of writing; `v0.3.16` predates the resolver), or the
+> vendored copy in this directory. `release-oss.sh` step 3b/6 publishes the
+> GitHub source/tag from the same release when the host has a GitHub credential
+> (otherwise the owner cuts it by hand). Prerequisites: `curl`, `jq`, `git`, and `gh` (the publish
 > PR/provenance path).
 
 ## Security model
@@ -66,14 +71,22 @@ behind the agent.
   run can never satisfy a required check/status. Requiring the check on
   `main` requires `checks: write`; a missing signing key, an invalid manifest
   or a missing token leaves it unsatisfied.
-- **The `.deb` is verified** against the release's `SHA256SUMS`, or against
-  `deb-sha256`. Setting `deb-url`/`deb-sha256` always ignores a preinstalled
-  toolchain. On a host that cannot reach the release channel (a runner behind
-  a WAF, or an air-gapped mirror), install `swarmfile-engine`, `swarmfile`
-  and `git-remote-swarmfile` on `PATH` in an earlier workflow step; the
-  installer uses that toolchain instead of fetching the `.deb`. The rest of
-  the install still needs `curl`, Node 18+ and `jq` (and a FUSE-capable runner
-  for agent mode); `dpkg-deb` is only required for the `.deb` path, so set
+- **The `.deb` is verified** against the release asset's digest, the release's
+  `SHA256SUMS`, or `deb-sha256`. Without a pin, a **preinstalled**
+  `swarmfile-engine`/`swarmfile`/`git-remote-swarmfile` on `PATH` is used
+  before the download (remove an old copy or pin; otherwise the agent feature
+  floor fails). With no preinstalled toolchain, the installer resolves the
+  newest Linux `.deb` attached to the `swarmfile-agent-action` public release
+  through the hub's anonymous asset API on its `workers.dev` origin (the
+  `install-asset-hub` input); the custom domains answer GitHub-hosted runners
+  with a bot-challenge 403. If that asset is absent, it falls back to the
+  `update-manifest` channel. Setting `deb-url`/`deb-sha256` always wins and
+  ignores a preinstalled toolchain. On a host that cannot reach either channel
+  (an air-gapped mirror), install `swarmfile-engine`, `swarmfile` and
+  `git-remote-swarmfile` on `PATH` in an earlier workflow step; the installer
+  uses that toolchain instead of fetching the `.deb`. The rest of the install
+  still needs `curl`, Node 18+ and `jq` (and a FUSE-capable runner for agent
+  mode); `dpkg-deb` is only required for the `.deb` path, so set
   `install-deps: false` only when those are already present.
 - **Pin everything you can:** the container image, the harness version, and
   third-party actions. Do not put secrets other than the harness key in the
@@ -132,12 +145,33 @@ behind the agent.
 
 ## Quick start
 
-Copy this directory into the repository while the action is unpublished:
+Use the published action (the Marketplace listing tracks the current release):
+
+```yaml
+- uses: mirrexa/swarmfile-agent-action@v0.3.17
+```
+
+To vendor a copy instead, use this directory's `action.yml` and `scripts/`:
 
 ```sh
 mkdir -p .github/actions/swarmfile-agent
 cp -R action.yml scripts .github/actions/swarmfile-agent/
 ```
+
+**Mirror the repository first when the publish job should open a PR.** The
+publish job pushes a branch onto GitHub, so the Swarmfile repository must share
+the GitHub history; a scratch project with unrelated commits cannot produce a
+PR. Import once (the source's default branch and commit ids are preserved):
+
+```sh
+swarmfile git import https://github.com/<owner>/<repo>.git \
+  --threshold-bytes <largest historical blob + 1>
+```
+
+Then mint a repository-scoped API key (**Settings → API keys**) and store it as
+the `SWARMFILE_API_KEY` secret. The workflow's `org` is the **org id** and
+`repository` the **repository id**, both printed by `swarmfile repository list`
+or the dashboard URL. The mirror's default branch must match `base-branch`.
 
 Add `examples/issue-agent.yml` as `.github/workflows/issue-agent.yml`, set the
 secrets, replace the `org`/`repository` values, and label an issue
@@ -180,6 +214,7 @@ the issue.
 | `allow-workflow-changes` | publish | no | `false` | allow `.github/workflows`/`.github/actions` changes (never `.swarmfile/agents.yml`) |
 | `provenance` | publish | no | `true` | fetch the signed manifest, post the `swarmfile/agent` check run + commit status and PR provenance/checkpoint comment (`checks: write`, `statuses: write`, `pull-requests: write`) |
 | `update-manifest` | both | no | stable manifest | update-channel manifest |
+| `install-asset-hub` | both | no | the hub's production `workers.dev` origin | public origin that serves the anonymous release assets (the unchallenged `.deb` channel); empty forces `update-manifest` |
 | `deb-url` | both | no | empty | explicit `.deb` URL |
 | `deb-sha256` | both | no | empty | `.deb` checksum; a pin always wins over preinstalled tools |
 | `install-deps` | agent | no | `true` | apt-install FUSE/runtime packages |
@@ -275,10 +310,11 @@ fails closed rather than silently using defaults.
   (`…@users.noreply.swarmfile.com`), not a per-agent git author. The `Agent:`
   session header and branch name carry the agent identity; a per-agent author
   override is a later feature.
-- The engine `.deb` is the update-channel build. A release that predates agent
-  sessions/checkpoints is refused; the stable channel was 0.3.12 at the time of
-  writing, so a 0.3.15+ `deb-url` is required until the next release is
-  promoted.
+- The `.deb` is the release build: the public asset channel is preferred, then
+  the update channel. A release that predates agent sessions/checkpoints is
+  refused; the stable channel is 0.3.16 at the time of writing, which satisfies
+  the 0.3.15 floor. A preinstalled older toolchain is used before the asset —
+  remove it or pin a 0.3.15+ `deb-url`.
 
 ## Development
 

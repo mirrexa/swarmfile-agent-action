@@ -119,6 +119,10 @@ inputs:
     description: Update-channel manifest that names the Linux .deb.
     required: false
     default: https://updates.swarmfile.com/stable/latest.json
+  install-asset-hub:
+    description: Public hub origin that serves the anonymous release assets for the Linux .deb. The custom domains challenge GitHub-hosted runners; this origin (the hub's workers.dev address) does not. Set empty to use only update-manifest.
+    required: false
+    default: https://swarmfile-dispatch-production.mdodd.workers.dev
   deb-url:
     description: Override the Linux .deb URL (skips the manifest; requires deb-sha256 or a SHA256SUMS beside it).
     required: false
@@ -172,6 +176,7 @@ runs:
       env:
         SWARMFILE_MODE: ${{ inputs.mode }}
         SWARMFILE_UPDATE_MANIFEST: ${{ inputs.update-manifest }}
+        SWARMFILE_INSTALL_ASSET_HUB: ${{ inputs.install-asset-hub }}
         SWARMFILE_DEB_URL: ${{ inputs.deb-url }}
         SWARMFILE_DEB_SHA256: ${{ inputs.deb-sha256 }}
         SWARMFILE_INSTALL_DEPS: ${{ inputs.install-deps }}

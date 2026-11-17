@@ -3,10 +3,14 @@
 # (publish mode) on a Linux runner.
 #
 # A pinned .deb URL or SHA-256 always wins over a preinstalled toolchain, so a
-# pin cannot be silently bypassed. Without a pin, the update-channel .deb is
-# verified against the release's SHA256SUMS before its binaries are executed.
+# pin cannot be silently bypassed. Without a pin, the newest Linux .deb attached
+# to the agent-action public release is resolved through the hub's anonymous
+# assets on its workers.dev origin (the unchallenged path for GitHub-hosted
+# runners), with the update channel as the fallback; either path is verified
+# against a published digest before any binary runs.
 set -euo pipefail
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib.sh"
 
 MODE="${SWARMFILE_MODE:-agent}"
 case "$MODE" in
@@ -21,6 +25,11 @@ GIT_ONLY=false
 TOOLS="$(mktemp -d "${RUNNER_TEMP:-/tmp}/swarmfile-action.XXXXXX")"
 BIN="$TOOLS/root/usr/bin"
 MANIFEST="${SWARMFILE_UPDATE_MANIFEST:-https://updates.swarmfile.com/stable/latest.json}"
+# The hub's workers.dev origin serves the anonymous release assets without the
+# custom domain's bot challenge, which is what GitHub-hosted runners hit. The
+# action input (install-asset-hub) sets this; an empty value disables the path.
+ASSET_HUB="${SWARMFILE_INSTALL_ASSET_HUB-https://swarmfile-dispatch-production.mdodd.workers.dev}"
+RESOLVER="$SCRIPT_DIR/resolve-install-deb.mjs"
 INSTALL_DEPS="${SWARMFILE_INSTALL_DEPS:-true}"
 DEB="$TOOLS/swarmfile.deb"
 curl_proto=(--proto '=https,file' --proto-redir '=https' --tlsv1.2)
@@ -62,6 +71,22 @@ if [ -n "${SWARMFILE_DEB_URL:-}" ] || [ -n "${SWARMFILE_DEB_SHA256:-}" ]; then
   pinned=true
 fi
 
+# A preinstalled toolchain (a runner image that already ships Swarmfile) skips
+# both the .deb download and the dependency install; a pin still wins over it.
+preinstalled=false
+if ! $pinned; then
+  if $GIT_ONLY; then
+    command -v git-remote-swarmfile >/dev/null 2>&1 && preinstalled=true
+  elif command -v swarmfile-engine >/dev/null 2>&1 \
+    && command -v swarmfile >/dev/null 2>&1 \
+    && command -v git-remote-swarmfile >/dev/null 2>&1; then
+    preinstalled=true
+  fi
+fi
+if $preinstalled; then
+  say "using the preinstalled Swarmfile toolchain; skipping the .deb download and dependency install"
+fi
+
 node18() {
   node -e 'process.exit(Number(process.versions.node.split(".")[0]) >= 18 ? 0 : 1)' >/dev/null 2>&1
 }
@@ -71,7 +96,7 @@ command -v curl >/dev/null 2>&1 || fail "missing required runner tool: curl"
 # Node is needed to parse .swarmfile/agents.yml on both the agent and publish
 # paths. Use the distro package (Ubuntu 24.04 supplies Node 18) rather than an
 # unverified `curl | sudo bash`; a runner older than 18 must install Node itself.
-if [ "$INSTALL_DEPS" = "true" ]; then
+if [ "$INSTALL_DEPS" = "true" ] && ! $preinstalled; then
   sudo apt-get update -qq
   if ! node18; then
     say "installing the distro Node 18+ (required for the policy reader)"
@@ -130,11 +155,30 @@ command -v dpkg-deb >/dev/null 2>&1 || fail "missing required runner tool: dpkg-
 mkdir -p "$TOOLS" "$BIN"
 
 deb_url="${SWARMFILE_DEB_URL:-}"
+asset_sha=""
+if [ -z "$deb_url" ] && [ -n "$ASSET_HUB" ] && ! $pinned; then
+  say "resolving the release .deb from $ASSET_HUB"
+  if resolved="$(node "$RESOLVER" --hub "$ASSET_HUB" 2>"$TOOLS/resolve.err")"; then
+    asset_tag="$(printf '%s' "$resolved" | jq -r '.tag // empty')"
+    asset_name="$(printf '%s' "$resolved" | jq -r '.name // empty')"
+    deb_url="$(printf '%s' "$resolved" | jq -r '.url // empty')"
+    asset_sha="$(printf '%s' "$resolved" | jq -r '.sha256 // empty')"
+    if [ -n "$deb_url" ] && [ -n "$asset_sha" ]; then
+      say "using ${asset_name:-the linux .deb} from $asset_tag"
+    else
+      deb_url=""; asset_sha=""
+    fi
+  fi
+  if [ -z "$deb_url" ]; then
+    say "the public release asset is unavailable; falling back to the update channel"
+    [ -s "$TOOLS/resolve.err" ] && sed 's/^/  /' "$TOOLS/resolve.err" >&2
+  fi
+fi
 if [ -z "$deb_url" ]; then
   say "reading $MANIFEST"
   meta="$TOOLS/latest.json"
   curl -fsSL "${curl_proto[@]}" --retry 3 --retry-delay 2 -o "$meta" "$MANIFEST" \
-    || fail "could not fetch $MANIFEST"
+    || fail "could not fetch $MANIFEST (a runner behind the zone's bot challenge: leave install-asset-hub at its default, or set deb-url/deb-sha256)"
   deb_url="$(jq -r '.platforms["linux-x86_64"].url // empty' "$meta")"
   [ -n "$deb_url" ] || fail "the update manifest has no linux-x86_64 .deb URL"
 fi
@@ -146,6 +190,9 @@ curl -fL "${curl_proto[@]}" --retry 3 --retry-delay 2 -o "$DEB" "$deb_url" \
 if [ -n "${SWARMFILE_DEB_SHA256:-}" ]; then
   echo "${SWARMFILE_DEB_SHA256}  $DEB" | sha256sum -c - \
     || fail "the downloaded .deb does not match SWARMFILE_DEB_SHA256"
+elif [ -n "$asset_sha" ]; then
+  echo "${asset_sha}  $DEB" | sha256sum -c - \
+    || fail "the downloaded .deb does not match the release asset digest"
 else
   sums="$TOOLS/SHA256SUMS"
   sums_url="$(dirname "$deb_url")/SHA256SUMS"
