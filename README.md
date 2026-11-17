@@ -276,7 +276,7 @@ from `SWARMFILE_MCP_POLICY_ROOT` (when set) or the current mount, and
 best-effort refuses past `max_concurrent`.
 
 The reader uses Node 18+. GitHub-hosted runners have it; `install-deps: true`
-installs Node 20 when the runner's Node is older, and a runner without Node 18+
+installs the distro Node (Ubuntu 24.04 supplies 18+; an older distro must provide 18+), and a runner without Node 18+
 fails closed rather than silently using defaults.
 
 ## Security notes that still matter

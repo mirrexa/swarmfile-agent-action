@@ -201,7 +201,9 @@ GH_HOST="${GH_HOST%%/*}"
 export GH_HOST
 
 say "fetching $BRANCH from the hub"
-git -C "$GITHUB_WORKSPACE" -c core.hooksPath="$EMPTY_HOOKS" fetch --no-tags \
+# Skip the P2P swarm-key fetch: a restricted runner can otherwise hang before
+# the hub fetch (R21/R208). The publish path is hub-only by design.
+SWARMFILE_HUB_ONLY=1 git -C "$GITHUB_WORKSPACE" -c core.hooksPath="$EMPTY_HOOKS" fetch --no-tags \
   "swarmfile://$ORG/$PROJECT" "refs/heads/$BRANCH:refs/remotes/swarmfile/$BRANCH"
 
 count="$(git -C "$GITHUB_WORKSPACE" rev-list --count "origin/$BASE..refs/remotes/swarmfile/$BRANCH")" \

@@ -17,7 +17,7 @@ need SWARMFILE_COMMAND "command is required"
 
 # The agent must never see the publish token. The action passes the input to
 # this step even in agent mode; drop it before the engine or Docker see it.
-unset SWARMFILE_GITHUB_TOKEN
+unset SWARMFILE_GITHUB_TOKEN GITHUB_TOKEN GH_TOKEN
 
 ORG="$SWARMFILE_ORG_ID"
 PROJECT="$SWARMFILE_REPOSITORY_ID"
