@@ -21,8 +21,8 @@ behind the agent.
 > origin does not), then falls back to the stable update channel. Published at
 > <https://github.com/marketplace/actions/swarmfile-agent-workspace>; use the
 > GitHub tag cut from the **same release** that contains this source
-> (`v0.3.17` at the time of writing; `v0.3.16` predates the resolver), or the
-> vendored copy in this directory. `release-oss.sh` step 3b/6 publishes the
+> (`v0.3.17` once `release-oss.sh` step 3b cuts it; `v0.3.16` predates the
+> resolver), or the vendored copy in this directory. `release-oss.sh` step 3b/6 publishes the
 > GitHub source/tag from the same release when the host has a GitHub credential
 > (otherwise the owner cuts it by hand). Prerequisites: `curl`, `jq`, `git`, and `gh` (the publish
 > PR/provenance path).
@@ -148,8 +148,13 @@ behind the agent.
 Use the published action (the Marketplace listing tracks the current release):
 
 ```yaml
-- uses: mirrexa/swarmfile-agent-action@v0.3.17
+- uses: mirrexa/swarmfile-agent-action@v0.3.16
 ```
+
+> `v0.3.16` predates the asset resolver. Cut `v0.3.17` from this source with
+> `release-oss.sh` step 3b (or by hand) to get the workers.dev `.deb` path; on
+> `v0.3.16`, pin `deb-url`/`deb-sha256` or use a runner with a preinstalled
+> toolchain.
 
 To vendor a copy instead, use this directory's `action.yml` and `scripts/`:
 
@@ -202,6 +207,7 @@ the issue.
 | `agent-env` | agent | no | `ANTHROPIC_API_KEY,OPENAI_API_KEY` | host env names passed into the container |
 | `run-on-host` | agent | no | `false` | run the command on the runner instead of a container; **bypasses isolation** (see security notes) |
 | `local-check-command` | agent | no | empty | run inside the agent container after the harness when `local_checks` is true |
+| `post-command` | agent | no | empty | run inside the agent container after the harness and local checks (a final trusted scan/step) |
 | `manual-push` | publish | no | `false` | allow a push when `upstream_push` is `manual` |
 | `branch` | publish | no | empty | the agent job's `branch` output (preferred over re-deriving it) |
 | `open-pr` | publish | no | `false` | open a PR for the pushed branch |

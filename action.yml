@@ -71,6 +71,10 @@ inputs:
     description: Agent mode only. Command run after the harness when .swarmfile/agents.yml sets local_checks true.
     required: false
     default: ""
+  post-command:
+    description: Agent mode only. Command run inside the agent container after the harness and any local checks (for example a final credential scan before promotion).
+    required: false
+    default: ""
   manual-push:
     description: Publish mode only. Set true to publish when .swarmfile/agents.yml sets upstream_push to manual.
     required: false
@@ -201,6 +205,7 @@ runs:
         SWARMFILE_AGENT_ENV: ${{ inputs.agent-env }}
         SWARMFILE_RUN_ON_HOST: ${{ inputs.run-on-host }}
         SWARMFILE_LOCAL_CHECK_COMMAND: ${{ inputs.local-check-command }}
+        SWARMFILE_POST_COMMAND: ${{ inputs.post-command }}
         SWARMFILE_MANUAL_PUSH: ${{ inputs.manual-push }}
         SWARMFILE_PUBLISH_BRANCH: ${{ inputs.branch }}
         SWARMFILE_OPEN_PR: ${{ inputs.open-pr }}

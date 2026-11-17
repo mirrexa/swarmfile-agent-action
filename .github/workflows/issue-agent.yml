@@ -8,8 +8,12 @@
 #     checked out (persist-credentials: false);
 #   - the issue text is delimited as untrusted data in the prompt;
 #   - the harness is version-pinned and runs with --pure (no external plugins);
+#   - the .deb is pinned by URL + SHA-256 (the anonymous asset digest is a
+#     transport check, not an authenticity proof);
 #   - a credential-shaped-string scan runs in the same container after the
-#     harness, before the branch is promoted;
+#     harness and local checks (`post-command`), before the branch is promoted.
+#     It is best-effort, not a control: the key rotation/cap and the workspace
+#     scope are the actual controls;
 #   - publishing is a separate job with the built-in github.token; the action
 #     refuses workflow/action changes on the agent branch by default.
 #
@@ -98,17 +102,32 @@ jobs:
           issue-number: ${{ github.event.issue.number }}
           container-image: node:24-bookworm
           agent-env: DEEPSEEK_API_KEY
-          install-asset-hub: https://swarmfile-dispatch-production.mdodd.workers.dev
-          # Pinned harness (never @latest) + the workspace secret scan, which
-          # runs after the harness and before the action promotes the branch.
+          # Pin the install: the asset digest served by the same anonymous
+          # origin is a transport check, not an authenticity proof.
+          deb-url: https://swarmfile-dispatch-production.mdodd.workers.dev/public/swarmfile/agent-action/assets/swarmfile_0.3.16_amd64.deb
+          deb-sha256: 6e7a930645fcf092116e93aa349c9513beda6b1b7e088493877d78c527a88a53
+          # Pinned harness (never @latest).
           command: |
             npx -y -p @kilocode/cli@7.8.27 kilo run --auto --pure -m deepseek/deepseek-chat "$SWARMFILE_PROMPT"
+          # Runs after the harness and any repo-authored local checks, in the
+          # same container. A non-1 grep status fails closed; a match lists the
+          # files and refuses promotion. Best-effort, not a control.
+          post-command: |
             echo '[secret-scan] scanning the workspace for credential-shaped strings'
-            if grep -rIEl --exclude-dir=.git --exclude-dir=node_modules \
+            scan_rc=0
+            grep -rIEl --exclude-dir=.git --exclude-dir=node_modules \
               -e 'sf_key_[A-Za-z0-9]{8,}' \
               -e 'sf_pat_[A-Za-z0-9]{8,}' \
-              -e 'sk-[A-Za-z0-9]{20,}' .; then
+              -e 'sk-[A-Za-z0-9_-]{20,}' \
+              -e 'gh[ps]_[A-Za-z0-9]{20,}' \
+              -e 'github_pat_[A-Za-z0-9_]{20,}' . >/tmp/secret-scan.txt || scan_rc=$?
+            if [ "$scan_rc" -eq 0 ]; then
               echo 'a credential-shaped string was found; refusing to promote this branch' >&2
+              cat /tmp/secret-scan.txt >&2
+              exit 1
+            fi
+            if [ "$scan_rc" -ne 1 ]; then
+              echo "secret scan failed (grep exit $scan_rc); refusing to promote this branch" >&2
               exit 1
             fi
           prompt: |

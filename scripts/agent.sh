@@ -234,6 +234,7 @@ BRANCH_PREFIX="$(policy_get branch_prefix)"
 BRANCH="$(branch_for "$label" "$BRANCH_PREFIX")"
 LOCAL_CHECKS="$(policy_get local_checks)"
 LOCAL_CHECK_COMMAND="${SWARMFILE_LOCAL_CHECK_COMMAND:-}"
+POST_COMMAND="${SWARMFILE_POST_COMMAND:-}"
 if [ "$LOCAL_CHECKS" = "true" ] && [ -z "$LOCAL_CHECK_COMMAND" ]; then
   fail "local_checks is true but local-check-command is empty"
 fi
@@ -314,6 +315,11 @@ agent_body="$agent_body"$'\n'"$COMMAND"
 if [ "$LOCAL_CHECKS" = "true" ]; then
   agent_body="$agent_body"$'\n'"echo '[checks] running local checks'"
   agent_body="$agent_body"$'\n'"$LOCAL_CHECK_COMMAND"
+fi
+# A final command runs after the harness and the repo-authored local checks, so
+# a workflow-supplied scan (trusted input) sees everything the branch produced.
+if [ -n "$POST_COMMAND" ]; then
+  agent_body="$agent_body"$'\n'"$POST_COMMAND"
 fi
 agent_script="set -e"$'\n'"mkdir -p /tmp/home; cd /workspace"$'\n'"$agent_body"
 host_script="set -e"$'\n'"mkdir -p \"$HOST_HOME\"; cd \"$MOUNT_PATH\""$'\n'"$agent_body"
