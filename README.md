@@ -18,7 +18,9 @@ behind the agent.
 > includes the agent-workspace commands (**0.3.15+**); the installer resolves the
 > newest published Linux `.deb` from the hub's anonymous release assets first
 > (the custom domains challenge GitHub-hosted runners; the hub's `workers.dev`
-> origin does not), then falls back to the stable update channel. Published at
+> origin does not), then falls back to the stable update channel. The anonymous
+> asset digest is a transport check served by the same origin; pass
+> `deb-sha256` (or `deb-url` + `deb-sha256`) for an independent pin. Published at
 > <https://github.com/marketplace/actions/swarmfile-agent-workspace>; use the
 > GitHub tag cut from the **same release** that contains this source
 > (`v0.3.17` once `release-oss.sh` step 3b cuts it; `v0.3.16` predates the
