@@ -27,8 +27,12 @@ const DEFAULT_ORG = "swarmfile";
 const DEFAULT_REPOSITORY = "swarmfile-agent-action";
 const DEFAULT_TIMEOUT_MS = 20_000;
 /** A release with no post-attach asset is a normal short window; try the next
- *  few releases rather than failing outright. */
+ *  few releases rather than failing outright. The public metadata is edge
+ *  cached for 60 s, so a just-attached `.deb` can miss the first listing: the
+ *  whole scan retries with a cache-busting query before giving up. */
 const MAX_RELEASES = 5;
+const LISTING_ATTEMPTS = 3;
+const LISTING_RETRY_DELAY_MS = 1000;
 const DEB_NAME_RE = /^swarmfile_[0-9][A-Za-z0-9._+-]*_amd64\.deb$/;
 const SHA256_RE = /^[0-9a-f]{64}$/;
 
@@ -187,46 +191,57 @@ export async function resolveInstallDeb(options = {}) {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const fetchImpl = options.fetchImpl ?? fetch;
 
-  const listUrl = `${hub}/public/${encodeURIComponent(org)}/${encodeURIComponent(repository)}/releases`;
-  const listing = await getJson(listUrl, timeoutMs, fetchImpl);
-  const releases = (Array.isArray(listing?.releases) ? [...listing.releases] : []).sort(
-    (a, b) => Number(b?.publishedAt ?? 0) - Number(a?.publishedAt ?? 0),
-  );
-  if (releases.length === 0) {
-    throw new ResolveError(`${org}/${repository} has no published releases`);
-  }
-
-  const tried = [];
-  for (const release of releases.slice(0, MAX_RELEASES)) {
-    const tag = String(release?.tagName ?? "").trim();
-    if (!tag) continue;
-    tried.push(tag);
-    const assetsUrl = `${hub}/public/${encodeURIComponent(org)}/${encodeURIComponent(repository)}` +
-      `/assets?tag=${encodeURIComponent(tag)}`;
-    let body;
-    try {
-      body = await getJson(assetsUrl, timeoutMs, fetchImpl);
-    } catch (e) {
-      // A sustained 429 means the shared metadata budget is exhausted; trying
-      // four more releases would only make it worse. Everything else (a
-      // release being unpublished, a 404) may be release-specific.
-      if (e instanceof ResolveError && e.status === 429) throw e;
-      options.log?.(`${tag}: ${e?.message ?? e}`);
-      continue;
+  const attempts = options.listingAttempts ?? LISTING_ATTEMPTS;
+  const retryDelayMs = options.listingRetryDelayMs ?? LISTING_RETRY_DELAY_MS;
+  const tried = new Set();
+  let sawListing = false;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    // A cache-buster key makes the retry miss the edge-cached empty listing;
+    // an unknown query parameter is ignored by the public route.
+    const cacheBust = attempt === 0 ? "" : `cacheBust=${Date.now()}-${attempt}`;
+    const listUrl =
+      `${hub}/public/${encodeURIComponent(org)}/${encodeURIComponent(repository)}/releases` +
+      (cacheBust ? `?${cacheBust}` : "");
+    const listing = await getJson(listUrl, timeoutMs, fetchImpl);
+    const releases = (Array.isArray(listing?.releases) ? [...listing.releases] : []).sort(
+      (a, b) => Number(b?.publishedAt ?? 0) - Number(a?.publishedAt ?? 0),
+    );
+    if (releases.length > 0) sawListing = true;
+    for (const release of releases.slice(0, MAX_RELEASES)) {
+      const tag = String(release?.tagName ?? "").trim();
+      if (!tag) continue;
+      tried.add(tag);
+      const assetsUrl =
+        `${hub}/public/${encodeURIComponent(org)}/${encodeURIComponent(repository)}` +
+        `/assets?tag=${encodeURIComponent(tag)}` +
+        (cacheBust ? `&${cacheBust}` : "");
+      let body;
+      try {
+        body = await getJson(assetsUrl, timeoutMs, fetchImpl);
+      } catch (e) {
+        // A sustained 429 means the shared metadata budget is exhausted; trying
+        // four more releases would only make it worse. Everything else (a
+        // release being unpublished, a 404) may be release-specific.
+        if (e instanceof ResolveError && e.status === 429) throw e;
+        options.log?.(`${tag}: ${e?.message ?? e}`);
+        continue;
+      }
+      const asset = pickDebAsset(body?.assets);
+      if (!asset) continue;
+      return {
+        tag,
+        name: asset.name,
+        url: assetUrl(hub, org, repository, asset.name, tag),
+        sha256: asset.sha256,
+        size: asset.size,
+      };
     }
-    const asset = pickDebAsset(body?.assets);
-    if (!asset) continue;
-    return {
-      tag,
-      name: asset.name,
-      url: assetUrl(hub, org, repository, asset.name, tag),
-      sha256: asset.sha256,
-      size: asset.size,
-    };
+    if (attempt + 1 < attempts) {
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    }
   }
-  throw new ResolveError(
-    `no linux .deb asset on ${org}/${repository} (tried ${tried.join(", ") || "no releases"})`,
-  );
+  const detail = tried.size > 0 ? `tried ${[...tried].join(", ")}` : sawListing ? "no releases" : "no published releases";
+  throw new ResolveError(`no linux .deb asset on ${org}/${repository} (${detail})`);
 }
 
 async function main() {

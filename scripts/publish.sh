@@ -265,6 +265,14 @@ if [ "$ALLOW_WORKFLOW_CHANGES" != "true" ] || [ "${count:-0}" -gt 0 ]; then
             break
           fi
           ;;
+        # The pilot/action repository's action lives at its root; a branch
+        # changing it would run the changed publish path on the next merge.
+        action.yml|scripts/*)
+          if [ -f action.yml ] && [ -f scripts/publish.sh ] && [ "$ALLOW_WORKFLOW_CHANGES" != "true" ]; then
+            protected=true
+            break
+          fi
+          ;;
       esac
     done < "$CHANGED_PATHS"
   fi
@@ -272,7 +280,7 @@ if [ "$ALLOW_WORKFLOW_CHANGES" != "true" ] || [ "${count:-0}" -gt 0 ]; then
     if [ "$policy_changed" = "true" ]; then
       fail "the agent branch changes .swarmfile/agents.yml; review and merge a policy change outside the agent workflow"
     fi
-    fail "the agent branch changes .github/workflows or .github/actions; set allow-workflow-changes: true only if you trust the agent"
+    fail "the agent branch changes .github/workflows, .github/actions or this repository's action source; set allow-workflow-changes: true only if you trust the agent"
   fi
 fi
 
