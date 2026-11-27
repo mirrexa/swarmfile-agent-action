@@ -151,7 +151,7 @@ behind the agent.
 Use the published action (the Marketplace listing tracks the current release):
 
 ```yaml
-- uses: mirrexa/swarmfile-agent-action@v0.3.16
+- uses: mirrexa/swarmfile-agent-action@v0.3.17
 ```
 
 > `v0.3.16` predates the asset resolver. Cut `v0.3.17` from this source with
